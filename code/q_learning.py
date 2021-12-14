@@ -6,12 +6,13 @@ def read_map_file(path):
 
     rows = f.readlines()
 
+    f.close()
+
     for i in range(len(rows)):
         rows[i] = rows[i].strip()
         rows[i] = rows[i].split(' ')
 
-        for j in range(len(rows[i])):
-            rows[i][j] = int(rows[i][j])
+        rows[i]=list(map(lambda x: int(x), rows[i]))
 
     return np.array(rows)
 
@@ -78,6 +79,7 @@ def get_next_location(current_row_index, current_column_index, action_index):
         new_column_index -= 1
     return new_row_index, new_column_index
 
+
 def get_shortest_path(start_row_index, start_column_index):
     if is_terminal_state(start_row_index, start_column_index):
         return []
@@ -113,8 +115,8 @@ for episode in range(1000):
 
         new_q_value = old_q_value + (learning_rate * temporal_difference)
         q_values[old_row_index, old_column_index, action_index] = new_q_value
-
+with open("Q-matrix.txt","w") as f:
+    f.write(q_values.__str__())
 print('Training complete!')
-
 
 print(get_shortest_path(3, 0))
