@@ -12,7 +12,7 @@ def read_map_file(path):
         rows[i] = rows[i].strip()
         rows[i] = rows[i].split(' ')
 
-        rows[i]=list(map(lambda x: int(x), rows[i]))
+        rows[i] = list(map(lambda x: int(x), rows[i]))
 
     return np.array(rows)
 
@@ -89,19 +89,70 @@ def get_shortest_path(start_row_index, start_column_index):
         shortest_path.append([current_row_index, current_column_index])
 
         while not is_terminal_state(current_row_index, current_column_index):
-            action_index = get_next_action(current_row_index, current_column_index, 1.)
+            action_index = get_next_action(current_row_index, current_column_index, 0.9)
             current_row_index, current_column_index = get_next_location(current_row_index, current_column_index,
                                                                         action_index)
             shortest_path.append([current_row_index, current_column_index])
         return shortest_path
 
 
+def action_to_short(previous_position, current_position):
+    action_to_short_map = {
+        -1: {
+            -1: "ul",
+            0: "l",
+            1: "dl",
+        },
+        0: {
+            -1: "u",
+            0: "-",
+            1: "d",
+        },
+        1: {
+            -1: "ur",
+            0: "r",
+            1: "dr",
+        }
+    }
+
+    x_diff = current_position[0] - previous_position[0]
+    y_diff = current_position[1] - previous_position[1]
+
+    return action_to_short_map[y_diff][x_diff]
+
+
+def export_to_lines(path, is_last=False):
+    lines = []
+    start_row, start_column = path[0][0], path[0][1]
+    lines.append(f"{start_row} {start_column}\n")
+    for i in range(1, len(path)):
+        lines.append(action_to_short(path[i - 1], path[i])+"\n")
+    if not is_last:
+        lines.append("---\n")
+    return lines
+
+
+def export_path_to_simulation_format(paths, file):
+    try:
+        with open(file, "w") as f:
+            lines = []
+            for i in range(len(paths)):
+                lines += export_to_lines(paths[i], i == len(paths) - 1)
+            f.writelines(lines)
+    except:
+        print("error writing to file")
+
+
 epsilon = 0.9
 discount_factor = 0.9
 learning_rate = 0.9
 
+# training_export=open("training.txt","w")
+training_paths=[]
 for episode in range(1000):
     row_index, column_index = get_starting_location()
+
+    start_row, start_column=row_index,column_index
 
     while not is_terminal_state(row_index, column_index):
         action_index = get_next_action(row_index, column_index, epsilon)
@@ -115,8 +166,13 @@ for episode in range(1000):
 
         new_q_value = old_q_value + (learning_rate * temporal_difference)
         q_values[old_row_index, old_column_index, action_index] = new_q_value
-with open("Q-matrix.txt","w") as f:
-    f.write(q_values.__str__())
-print('Training complete!')
 
-print(get_shortest_path(3, 0))
+    training_paths.append(get_shortest_path(start_row,start_column))
+    # path=get_shortest_path(start_row,start_column)
+    # training_export.writelines()
+
+print('Training complete!')
+export_path_to_simulation_format(training_paths,"training-paths.txt")
+path=get_shortest_path(4, 0)
+export_path_to_simulation_format([path],"final-path.txt")
+print(path)
