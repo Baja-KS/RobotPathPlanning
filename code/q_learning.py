@@ -128,7 +128,7 @@ def export_to_lines(path, is_last=False):
     for i in range(1, len(path)):
         lines.append(action_to_short(path[i - 1], path[i])+"\n")
     if not is_last:
-        lines.append("---\n")
+        lines.append("x\n")
     return lines
 
 
@@ -152,13 +152,19 @@ training_paths=[]
 for episode in range(1000):
     row_index, column_index = get_starting_location()
 
-    start_row, start_column=row_index,column_index
+    start_row, start_column = row_index, column_index
+
+    training_path = []
+    training_path.append([start_row, start_column])
 
     while not is_terminal_state(row_index, column_index):
         action_index = get_next_action(row_index, column_index, epsilon)
 
+
         old_row_index, old_column_index = row_index, column_index  # store the old row and column indexes
         row_index, column_index = get_next_location(row_index, column_index, action_index)
+
+        training_path.append([row_index, column_index])
 
         reward = rewards[row_index, column_index]
         old_q_value = q_values[old_row_index, old_column_index, action_index]
@@ -167,7 +173,9 @@ for episode in range(1000):
         new_q_value = old_q_value + (learning_rate * temporal_difference)
         q_values[old_row_index, old_column_index, action_index] = new_q_value
 
-    training_paths.append(get_shortest_path(start_row,start_column))
+    # training_paths.append([start_row, start_column, training_actions])
+
+    training_paths.append(training_path)
     # path=get_shortest_path(start_row,start_column)
     # training_export.writelines()
 
