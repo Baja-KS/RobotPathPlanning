@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def read_map_file(path):
@@ -19,81 +20,102 @@ def read_map_file(path):
 
 tileMap = read_map_file('./Map')
 
-print(tileMap)
 
-environment_rows = len(tileMap)
-environment_columns = len(tileMap[0])
+class Env:
+    def __init__(self, tileMap, epsilon, discount_factor, learning_rate):
+        self.tileMap = tileMap
+        self.printMap = np.array(tileMap)
+        self.tileMapCopy = np.array(tileMap)
+        self.env_rows = len(self.tileMap)
+        self.env_columns = len(self.tileMap[0])
 
-print(environment_rows, environment_columns)
+        self.epsilon = epsilon
+        self.discount_factor = discount_factor
+        self.learning_rate = learning_rate
 
-q_values = np.zeros((environment_rows, environment_columns, 4))
+        self.agent_position = [0, 0]
+        self.actions = ['up', 'right', 'down', 'left']
+        self.q_values = np.zeros((self.env_rows, self.env_columns, 3, len(self.actions)))
 
-actions = ['up', 'right', 'down', 'left']
+    def reset_env(self):
+        self.tileMap = np.array(self.tileMapCopy)
+        self.printMap = np.array(self.tileMapCopy)
 
-rewards = np.full((environment_rows, environment_columns), -100.)
+    def set_agent_position(self, x, y):
+        if x < 0 or x >= self.env_rows:
+            return
+        if y < 0 or y >= self.env_columns:
+            return
 
-for i in range(environment_rows):
-    for j in range(environment_columns):
-        if tileMap[i][j] == 1:
-            rewards[i][j] = -1
+        self.agent_position = [x, y]
 
-rewards[0, 3] = 100
+    def is_terminal_state(self, row_index, column_index, carry_index):
+        if self.tileMap[row_index, column_index] == 0 or self.tileMap[row_index, column_index] == 5:
+            return True
+        else:
+            return False
 
-print(rewards)
+    def get_next_action(self, row_index, column_index, carry_index, epsilon):
+        if np.random.random() > epsilon:
+            return np.argmax(self.q_values[row_index, column_index, carry_index])
 
+        else:
+            return np.random.randint(4)
 
-def is_terminal_state(current_row_index, current_column_index):
-    if rewards[current_row_index, current_column_index] == -1.:
-        return False
-    else:
-        return True
+    def get_starting_location(self):
+        row_index = np.random.randint(self.env_rows)
+        column_index = np.random.randint(self.env_columns)
 
+        while self.is_terminal_state(row_index, column_index, 0):
+            row_index = np.random.randint(self.env_rows)
+            column_index = np.random.randint(self.env_columns)
 
-def get_starting_location():
-    current_row_index = np.random.randint(environment_rows)
-    current_column_index = np.random.randint(environment_columns)
+        return row_index, column_index
 
-    while is_terminal_state(current_row_index, current_column_index):
-        current_row_index = np.random.randint(environment_rows)
-        current_column_index = np.random.randint(environment_columns)
-    return current_row_index, current_column_index
+    def next_state(self, row_index, column_index, carry_index, action_index):
+        new_row_index = row_index
+        new_column_index = column_index
+        new_carry_index = carry_index
 
+        reward = 0
 
-def get_next_action(current_row_index, current_column_index, epsilon):
-    if np.random.random() < epsilon:
-        return np.argmax(q_values[current_row_index, current_column_index])
-    else:
-        return np.random.randint(4)
+        if self.actions[action_index] == 'up' and row_index > 0:
+            new_row_index -= 1
 
+        elif self.actions[action_index] == 'right' and column_index < self.env_columns - 1:
+            new_column_index += 1
 
-def get_next_location(current_row_index, current_column_index, action_index):
-    new_row_index = current_row_index
-    new_column_index = current_column_index
-    if actions[action_index] == 'up' and current_row_index > 0:
-        new_row_index -= 1
-    elif actions[action_index] == 'right' and current_column_index < environment_columns - 1:
-        new_column_index += 1
-    elif actions[action_index] == 'down' and current_row_index < environment_rows - 1:
-        new_row_index += 1
-    elif actions[action_index] == 'left' and current_column_index > 0:
-        new_column_index -= 1
-    return new_row_index, new_column_index
+        elif self.actions[action_index] == 'down' and row_index < self.env_rows - 1:
+            new_row_index += 1
 
+        elif self.actions[action_index] == 'left' and column_index > 0:
+            new_column_index -= 1
 
-def get_shortest_path(start_row_index, start_column_index):
-    if is_terminal_state(start_row_index, start_column_index):
-        return []
-    else:
-        current_row_index, current_column_index = start_row_index, start_column_index
-        shortest_path = []
-        shortest_path.append([current_row_index, current_column_index])
+        if self.tileMap[new_row_index, new_column_index] == 0:
+            reward -= 100
 
-        while not is_terminal_state(current_row_index, current_column_index):
-            action_index = get_next_action(current_row_index, current_column_index, 0.9)
-            current_row_index, current_column_index = get_next_location(current_row_index, current_column_index,
-                                                                        action_index)
-            shortest_path.append([current_row_index, current_column_index])
-        return shortest_path
+        elif self.tileMap[new_row_index, new_column_index] == 2:
+            self.tileMap[new_row_index, new_column_index] = 1
+            new_carry_index += 1
+            reward += 15
+
+        elif self.tileMap[new_row_index, new_column_index] == 5:
+            if carry_index == 2:
+                reward += 100
+            else:
+                reward -= 30
+
+        reward -= 1
+
+        self.agent_position = [new_row_index, new_column_index]
+        return new_row_index, new_column_index, new_carry_index, reward
+
+    def visual_update(self):
+        self.printMap = np.array(self.tileMap)
+        self.printMap[self.agent_position[0], self.agent_position[1]] = 8
+
+    def print_env(self):
+        print(self.printMap)
 
 
 def action_to_short(previous_position, current_position):
@@ -126,7 +148,7 @@ def export_to_lines(path, is_last=False):
     start_row, start_column = path[0][0], path[0][1]
     lines.append(f"{start_row} {start_column}\n")
     for i in range(1, len(path)):
-        lines.append(action_to_short(path[i - 1], path[i])+"\n")
+        lines.append(action_to_short(path[i - 1], path[i]) + "\n")
     if not is_last:
         lines.append("x\n")
     return lines
@@ -139,48 +161,78 @@ def export_path_to_simulation_format(paths, file):
             for i in range(len(paths)):
                 lines += export_to_lines(paths[i], i == len(paths) - 1)
             f.writelines(lines)
-    except:
+    except IOError:
         print("error writing to file")
 
 
-epsilon = 0.9
+eps = 1
+eps_decay = 0.991
 discount_factor = 0.9
 learning_rate = 0.9
 
-# training_export=open("training.txt","w")
-training_paths=[]
-for episode in range(1000):
-    row_index, column_index = get_starting_location()
+num_episodes = 1800
+training_paths = []
 
-    start_row, start_column = row_index, column_index
+env = Env(tileMap, eps, discount_factor, learning_rate)
+
+rewards = []
+
+for episode in range(num_episodes):
+    if episode == 1700:
+        eps = 0
+    print(episode, ' : ', eps)
+    r_index, c_index = env.get_starting_location()
+    carr_index = 0
+    s_row, s_column = r_index, c_index
+
+    # print(start_row, start_column)
 
     training_path = []
-    training_path.append([start_row, start_column])
+    training_path.append([s_row, s_column])
 
-    while not is_terminal_state(row_index, column_index):
-        action_index = get_next_action(row_index, column_index, epsilon)
+    move_counter = 0
+    total_reward = 0
 
+    while not env.is_terminal_state(r_index, c_index, carr_index):
+        if move_counter > 50:
+            break
+        move_counter += 1
 
-        old_row_index, old_column_index = row_index, column_index  # store the old row and column indexes
-        row_index, column_index = get_next_location(row_index, column_index, action_index)
+        action_index = env.get_next_action(r_index, c_index, carr_index, eps)
 
-        training_path.append([row_index, column_index])
+        old_row_index, old_column_index, old_carry_index = r_index, c_index, carr_index
+        r_index, c_index, carr_index, rew = env.next_state(r_index, c_index, carr_index, action_index)
 
-        reward = rewards[row_index, column_index]
-        old_q_value = q_values[old_row_index, old_column_index, action_index]
-        temporal_difference = reward + (discount_factor * np.max(q_values[row_index, column_index])) - old_q_value
+        training_path.append([r_index, c_index])
 
-        new_q_value = old_q_value + (learning_rate * temporal_difference)
-        q_values[old_row_index, old_column_index, action_index] = new_q_value
+        total_reward += rew
 
-    # training_paths.append([start_row, start_column, training_actions])
+        old_q_value = env.q_values[old_row_index, old_column_index, old_carry_index, action_index]
+        temporal_difference = rew + discount_factor * np.max(
+            env.q_values[r_index, c_index, carr_index]) - old_q_value
 
+        new_q_value = old_q_value + learning_rate * temporal_difference
+
+        env.q_values[old_row_index, old_column_index, old_carry_index, action_index] = new_q_value
+
+        env.visual_update()
+        env.print_env()
+
+    print(total_reward)
+    rewards.append(total_reward)
+    env.reset_env()
+    eps *= eps_decay
     training_paths.append(training_path)
-    # path=get_shortest_path(start_row,start_column)
-    # training_export.writelines()
 
 print('Training complete!')
-export_path_to_simulation_format(training_paths,"training-paths.txt")
-path=get_shortest_path(4, 0)
-export_path_to_simulation_format([path],"final-path.txt")
-print(path)
+
+with open("Q-matrix.txt", "w") as f:
+    f.write(env.q_values.__str__())
+
+export_path_to_simulation_format(training_paths, "training-paths.txt")
+# path = get_shortest_path(1, 0)
+# export_path_to_simulation_format([path], "final-path.txt")
+# print(path)
+
+plt.plot(range(0, num_episodes, 1), rewards)
+plt.show()
