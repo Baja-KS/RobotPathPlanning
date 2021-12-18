@@ -1,0 +1,20 @@
+export_training_paths:  false
+export_final_paths: false
+epsilon:  1
+epsilon_decay: 0.991
+discount_factor:  0.9
+learning_rate:  0.9
+episodes: 1800
+wall_reward:  -100
+path_reward:  -1
+target_reward:  100
+pickup_reward:  15
+target_without_pickup_reward: -30
+stop_exploring_after: 1700 #optional
+move_limit: 50 #optional
+test_path_starting_points:
+  - x:  6
+    y:  0
+  - x:  0
+    y:  5
+

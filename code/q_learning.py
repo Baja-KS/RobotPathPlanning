@@ -1,7 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from yaml import safe_load
 
+with open("params.yaml", "r") as f:
+    config: dict = safe_load(f)
 
+# print(config)
 def read_map_file(path):
     f = open('./Map')
 
@@ -40,6 +44,22 @@ class Env:
     def reset_env(self):
         self.tileMap = np.array(self.tileMapCopy)
         self.printMap = np.array(self.tileMapCopy)
+
+    def get_shortest_path(self, start_x, start_y):
+        path = []
+        current_carry = 0
+        if self.is_terminal_state(start_x, start_y, current_carry):
+            return path
+
+        current_x, current_y = start_x, start_y
+        path.append([current_x, current_y])
+
+        while not self.is_terminal_state(current_x, current_y, current_carry):
+            action = self.get_next_action(current_x, current_y, current_carry, 1)
+            current_x, current_y, current_carry, _ = self.next_state(current_x, current_y, current_carry, action)
+            path.append([current_x, current_y])
+
+        return path
 
     def set_agent_position(self, x, y):
         if x < 0 or x >= self.env_rows:
@@ -92,20 +112,20 @@ class Env:
             new_column_index -= 1
 
         if self.tileMap[new_row_index, new_column_index] == 0:
-            reward -= 100
+            reward -= config.get("wall_reward")
 
         elif self.tileMap[new_row_index, new_column_index] == 2:
             self.tileMap[new_row_index, new_column_index] = 1
             new_carry_index += 1
-            reward += 15
+            reward += config.get("pickup_reward")
 
         elif self.tileMap[new_row_index, new_column_index] == 5:
             if carry_index == 2:
-                reward += 100
+                reward += config.get("target_reward")
             else:
-                reward -= 30
+                reward += config.get("target_without_pickup_reward")
 
-        reward -= 1
+        reward += config.get("path_reward")
 
         self.agent_position = [new_row_index, new_column_index]
         return new_row_index, new_column_index, new_carry_index, reward
@@ -165,12 +185,12 @@ def export_path_to_simulation_format(paths, file):
         print("error writing to file")
 
 
-eps = 1
-eps_decay = 0.991
-discount_factor = 0.9
-learning_rate = 0.9
+eps = config.get("epsilon")
+eps_decay = config.get("epsilon_decay")
+discount_factor = config.get("discount_factor")
+learning_rate = config.get("learning_rate")
 
-num_episodes = 1800
+num_episodes = config.get("episodes")
 training_paths = []
 
 env = Env(tileMap, eps, discount_factor, learning_rate)
@@ -178,7 +198,7 @@ env = Env(tileMap, eps, discount_factor, learning_rate)
 rewards = []
 
 for episode in range(num_episodes):
-    if episode == 1700:
+    if config.get("stop_exploring_after") and episode == config.get("stop_exploring_after"):
         eps = 0
     print(episode, ' : ', eps)
     r_index, c_index = env.get_starting_location()
@@ -194,7 +214,7 @@ for episode in range(num_episodes):
     total_reward = 0
 
     while not env.is_terminal_state(r_index, c_index, carr_index):
-        if move_counter > 50:
+        if config.get('move_limit') and move_counter > config.get("move_limit"):
             break
         move_counter += 1
 
@@ -229,10 +249,16 @@ print('Training complete!')
 with open("Q-matrix.txt", "w") as f:
     f.write(env.q_values.__str__())
 
-export_path_to_simulation_format(training_paths, "training-paths.txt")
-# path = get_shortest_path(1, 0)
-# export_path_to_simulation_format([path], "final-path.txt")
-# print(path)
+if config.get("export_training_paths"):
+    export_path_to_simulation_format(training_paths, "training-paths.txt")
+
+
+for start in config.get("test_path_starting_points"):
+    x,y=start["x"],start["y"]
+    path=env.get_shortest_path(x,y)
+    if config.get("export_final_paths"):
+        export_path_to_simulation_format([path],f"final-path-start:({x},{y})")
+    print(path)
 
 plt.plot(range(0, num_episodes, 1), rewards)
 plt.show()
