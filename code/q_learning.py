@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import numpy as np
 import matplotlib.pyplot as plt
 from yaml import safe_load
@@ -34,14 +36,6 @@ class Env:
         self.env_rows = len(self.tileMap)
         self.env_columns = len(self.tileMap[0])
 
-        self.target = config.get('target')
-        self.target_x = self.target.get('x')
-        self.target_y = self.target.get('y')
-        print(self.target_x, self.target_y)
-
-        self.box_x = 0
-        self.box_y = 0
-
         self.epsilon = epsilon
         self.discount_factor = discount_factor
         self.learning_rate = learning_rate
@@ -50,35 +44,80 @@ class Env:
         self.actions = ['up', 'right', 'down', 'left']
 
         self.q_values = np.zeros(
-            (self.env_rows, self.env_columns, self.env_rows, self.env_columns, 2, len(self.actions)))
+            (self.env_rows, self.env_columns, self.env_rows, self.env_columns,
+             self.env_rows, self.env_columns, 2, len(self.actions)))
 
     def reset_env(self):
         self.tileMap = np.array(self.tileMapCopy)
         self.printMap = np.array(self.tileMapCopy)
 
-    def get_shortest_path(self, start_x, start_y, box_x, box_y):
+    def get_shortest_path(self, start_x, start_y, target_x, target_y, box_x, box_y):
         path = []
         if self.tileMap[start_x, start_y] == 0:
             return []
 
-        row_index, column_index, box_index_x, box_index_y, carry_index = start_x, start_y, box_x, box_y, 0
+        row_index, column_index, target_index_x, target_index_y, \
+        box_index_x, box_index_y, \
+        carry_index = start_x, start_y, target_x, target_y, box_x, box_y, 0
 
         path.append([start_x, start_y])
 
-        move_counter = 0
+        m_counter = 0
+        t_reward = 0
 
-        while not self.is_terminal_state(row_index, column_index) or move_counter == 0:
-            move_counter += 1
+        while not self.is_terminal_state(row_index, column_index,
+                                         target_index_x, target_index_y, carry_index):
+            if m_counter == config.get('move_limit'):
+                break
+
+            m_counter += 1
 
             action = self.get_next_action(row_index, column_index,
+                                          target_index_x, target_index_y,
                                           box_index_x, box_index_y, carry_index, -1)
 
             row_index, column_index, carry_index, reward = self.next_state(row_index, column_index,
+                                                                           target_index_x, target_index_y,
                                                                            box_index_x, box_index_y,
                                                                            carry_index, action)
-            path.append([row_index, column_index])
 
-        return path
+            path.append([row_index, column_index])
+            t_reward += reward
+
+        return path, t_reward
+
+    def test(self):
+        test_episodes = config.get('test_episodes')
+        passed = 0
+
+        for test_episode in range(test_episodes):
+            # print('------------------------------------------------------------------------------')
+            # print('Test: ' + str(test_episode))
+
+            row_index, column_index = self.get_starting_location()
+            target_index_x, target_index_y = self.get_target_location()
+            box_index_x, box_index_y = self.get_box_location(target_index_x, target_index_y)
+
+            # print(f'Starting location: [{row_index}, {column_index}]')
+            # print(f'Target location: [{target_index_x}, {target_index_y}]')
+            # print(f'Box location: [{box_index_x}, {box_index_y}]')
+
+            path, reward = self.get_shortest_path(row_index, column_index,
+                                                  target_index_x, target_index_y,
+                                                  box_index_x, box_index_y)
+
+            if reward > 0:
+                passed += 1
+            else:
+                print('------------------------------------------------------------------------------')
+                print('Test: ' + str(test_episode))
+                print(f'Starting location: [{row_index}, {column_index}]')
+                print(f'Target location: [{target_index_x}, {target_index_y}]')
+                print(f'Box location: [{box_index_x}, {box_index_y}]')
+                print(path)
+                print(reward)
+
+        print(f'Accuracy: {(passed / test_episodes) * 100}%')
 
     def set_agent_position(self, x, y):
         if x < 0 or x >= self.env_rows:
@@ -88,15 +127,18 @@ class Env:
 
         self.agent_position = [x, y]
 
-    def is_terminal_state(self, row_index, column_index):
-        if self.tileMap[row_index, column_index] == 0 or (self.target_x == row_index and self.target_y == column_index):
+    def is_terminal_state(self, row_index, column_index, target_index_x, target_index_y, carry_state):
+        if self.tileMap[row_index, column_index] == 0 \
+                or (row_index == target_index_x and column_index == target_index_y and carry_state == 1):
             return True
         else:
             return False
 
-    def get_next_action(self, row_index, column_index, box_index_x, box_index_y, carry_index, epsilon):
+    def get_next_action(self, row_index, column_index, target_index_x, target_index_y,
+                        box_index_x, box_index_y, carry_index, epsilon):
         if np.random.random() > epsilon:
-            return np.argmax(self.q_values[row_index, column_index, box_index_x, box_index_y, carry_index])
+            return np.argmax(self.q_values[row_index, column_index, target_index_x, target_index_y,
+                                           box_index_x, box_index_y, carry_index])
 
         else:
             return np.random.randint(4)
@@ -111,17 +153,29 @@ class Env:
 
         return row_index, column_index
 
-    def get_box_spawn_location(self):
+    def get_target_location(self):
+        target_index_x = np.random.randint(self.env_rows)
+        target_index_y = np.random.randint(self.env_columns)
+
+        while self.tileMap[target_index_x, target_index_y] == 0:
+            target_index_x = np.random.randint(self.env_rows)
+            target_index_y = np.random.randint(self.env_columns)
+
+        return target_index_x, target_index_y
+
+    def get_box_location(self, target_index_x, target_index_y):
         box_index_x = np.random.randint(self.env_rows)
         box_index_y = np.random.randint(self.env_columns)
 
-        while self.is_terminal_state(box_index_x, box_index_y):
+        while self.tileMap[box_index_x, box_index_y] == 0 \
+                or (box_index_x == target_index_x and box_index_y == target_index_y):
             box_index_x = np.random.randint(self.env_rows)
             box_index_y = np.random.randint(self.env_columns)
 
         return box_index_x, box_index_y
 
-    def next_state(self, row_index, column_index, box_index_x, box_index_y, carry_index, action_index):
+    def next_state(self, row_index, column_index, target_index_x, target_index_y,
+                   box_index_x, box_index_y, carry_index, action_index):
         new_row_index = row_index
         new_column_index = column_index
         new_carry_index = carry_index
@@ -143,13 +197,11 @@ class Env:
         if self.tileMap[new_row_index, new_column_index] == 0:
             reward += config.get("wall_reward")
 
-        elif self.target_x == new_row_index and self.target_y == new_column_index:
+        elif target_index_x == new_row_index and target_index_y == new_column_index:
             if carry_index == 1:
                 reward += config.get('target_reward')
-            else:
-                reward += config.get('target_without_pickup_reward')
 
-        if carry_index == 0 and box_index_x == new_row_index and box_index_y == new_column_index:
+        elif carry_index == 0 and box_index_x == new_row_index and box_index_y == new_column_index:
             new_carry_index = 1
             reward += config.get('pickup_reward')
 
@@ -214,6 +266,8 @@ def export_path_to_simulation_format(paths, file):
 
 
 eps = config.get("epsilon")
+min_eps = config.get('min_epsilon')
+max_eps = config.get('max_epsilon')
 eps_decay = config.get("epsilon_decay")
 discount_factor = config.get("discount_factor")
 learning_rate = config.get("learning_rate")
@@ -231,7 +285,8 @@ for episode in range(num_episodes):
 
     print(episode, ' : ', eps)
     r_index, c_index = env.get_starting_location()
-    b_index_x, b_index_y = env.get_box_spawn_location()
+    t_index_x, t_index_y = env.get_target_location()
+    b_index_x, b_index_y = env.get_box_location(t_index_x, t_index_y)
     carr_index = 0
 
     s_row, s_column = r_index, c_index
@@ -242,54 +297,55 @@ for episode in range(num_episodes):
     move_counter = 0
     total_reward = 0
 
-    while not env.is_terminal_state(r_index, c_index) or move_counter == 0:
+    while not env.is_terminal_state(r_index, c_index, t_index_x, t_index_y, carr_index):
         if config.get('move_limit') and move_counter > config.get("move_limit"):
             break
         move_counter += 1
 
-        a_index = env.get_next_action(r_index, c_index, b_index_x, b_index_y, carr_index, eps)
+        a_index = env.get_next_action(r_index, c_index, t_index_x, t_index_y,
+                                      b_index_x, b_index_y, carr_index, eps)
 
         old_row_index, old_column_index, old_carry_index = r_index, c_index, carr_index
-        r_index, c_index, carr_index, rew = env.next_state(r_index, c_index, b_index_x, b_index_y, carr_index, a_index)
+
+        r_index, c_index, carr_index, rew = env.next_state(r_index, c_index,
+                                                           t_index_x, t_index_y,
+                                                           b_index_x, b_index_y,
+                                                           carr_index, a_index)
 
         training_path.append([r_index, c_index])
 
         total_reward += rew
 
-        old_q_value = env.q_values[old_row_index, old_column_index, b_index_x, b_index_y, old_carry_index, a_index]
+        old_q_value = env.q_values[old_row_index, old_column_index, t_index_x, t_index_y,
+                                   b_index_x, b_index_y,
+                                   old_carry_index, a_index]
+
         temporal_difference = rew + discount_factor * np.max(
-            env.q_values[r_index, c_index, b_index_x, b_index_y, carr_index]) - old_q_value
+            env.q_values[r_index, c_index, t_index_x, t_index_y,
+                         b_index_x, b_index_y, carr_index]) - old_q_value
 
         new_q_value = old_q_value + learning_rate * temporal_difference
 
-        env.q_values[old_row_index, old_column_index, b_index_x, b_index_y, old_carry_index, a_index] = new_q_value
-
-    # env.visual_update()
-    # env.print_env()
+        env.q_values[old_row_index, old_column_index, t_index_x, t_index_y,
+                     b_index_x, b_index_y, old_carry_index, a_index] = new_q_value
 
     print(total_reward)
     rewards.append(total_reward)
     env.reset_env()
+    # eps = min_eps + (max_eps - min_eps) * np.exp(-eps_decay*episode)
     eps *= eps_decay
     training_paths.append(training_path)
 
 print('Training complete!')
-
-with open("Q-matrix.txt", "w") as f:
-    f.write(env.q_values.__str__())
+np.save('q_values', env.q_values)
 
 if config.get("export_training_paths"):
     export_path_to_simulation_format(training_paths, "training-paths.txt")
 
-
-env.reset_env()
-
-for start in config.get("test_path_starting_points"):
-    x, y = start["x"], start["y"]
-    path = env.get_shortest_path(x, y, 4, 7)
-    if config.get("export_final_paths"):
-        export_path_to_simulation_format([path], f"final-path-start:({x},{y})")
-    print(path)
-
-plt.plot(range(0, num_episodes, 1), rewards)
+plt.plot(range(0, num_episodes), rewards)
 plt.show()
+
+env.test()
+
+print(env.get_shortest_path(4, 7, 0, 0, 1, 0))
+print(env.get_shortest_path(0, 0, 4, 7, 6, 7))
