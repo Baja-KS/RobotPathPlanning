@@ -10,11 +10,11 @@ with open("params.yaml", "r") as f:
 
 # print(config)
 def read_map_file(path):
-    f = open('./Map')
+    map_file = open('./Map')
 
-    rows = f.readlines()
+    rows = map_file.readlines()
 
-    f.close()
+    map_file.close()
 
     for i in range(len(rows)):
         rows[i] = rows[i].strip()
@@ -88,19 +88,14 @@ class Env:
 
     def test(self):
         test_episodes = config.get('test_episodes')
+
         passed = 0
 
         for test_episode in range(test_episodes):
-            # print('------------------------------------------------------------------------------')
-            # print('Test: ' + str(test_episode))
 
             row_index, column_index = self.get_starting_location()
             target_index_x, target_index_y = self.get_target_location()
             box_index_x, box_index_y = self.get_box_location(target_index_x, target_index_y)
-
-            # print(f'Starting location: [{row_index}, {column_index}]')
-            # print(f'Target location: [{target_index_x}, {target_index_y}]')
-            # print(f'Box location: [{box_index_x}, {box_index_y}]')
 
             path, reward = self.get_shortest_path(row_index, column_index,
                                                   target_index_x, target_index_y,
@@ -347,5 +342,6 @@ plt.show()
 
 env.test()
 
-print(env.get_shortest_path(4, 7, 0, 0, 1, 0))
-print(env.get_shortest_path(0, 0, 4, 7, 6, 7))
+#print(env.get_shortest_path(3, 7, 2, 3, 6, 8))
+#print(env.get_shortest_path(2, 1, 4, 7, 5, 8))
+#print(env.get_shortest_path(5, 8, 7, 7, 3, 1))
