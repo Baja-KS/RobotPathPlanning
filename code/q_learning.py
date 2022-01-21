@@ -54,6 +54,8 @@ class Env:
                 epsilon = 0
 
             print(episode, ' : ', epsilon)
+
+            # start training -> starting location of the agent,target location and box location
             row_index, column_index = env.get_starting_location()
             target_index_x, target_index_y = env.get_target_location()
             box_index_x, box_index_y = env.get_box_location(target_index_x, target_index_y)
@@ -61,6 +63,7 @@ class Env:
 
             start_row, start_column = row_index, column_index
 
+            # add locations to path
             training_path = []
             training_path.append([start_row, start_column])
             training_path.append([target_index_x, target_index_y])
@@ -69,7 +72,9 @@ class Env:
             move_counter = 0
             total_reward = 0
 
+            # iteration -> agent tries to find a path to the box,and then to the target location
             while not env.is_terminal_state(row_index, column_index, target_index_x, target_index_y, carry_index):
+                # train time move limit
                 if config.get('move_limit') and move_counter > config.get("move_limit"):
                     break
                 move_counter += 1
@@ -88,6 +93,7 @@ class Env:
 
                 total_reward += rew
 
+                # Bellman's equation -> temporal difference & q value update
                 old_q_value = env.q_values[old_row_index, old_column_index, target_index_x, target_index_y,
                                            box_index_x, box_index_y,
                                            old_carry_index, action_index]
@@ -106,12 +112,14 @@ class Env:
             env.reset_env()
             # eps = min_eps + (max_eps - min_eps) * np.exp(-eps_decay*episode)
             epsilon *= epsilon_decay
-            training_paths.append(training_path)
+            # every xth episode is exported
+            if (episode + 1) % config.get("iteration_export_cycle") == 0:
+                training_paths.append(training_path)
 
         self.trained = True
         print('Training complete!')
         np.save('q_values', env.q_values)
-
+        # Path export to a format compatible with our unity simulation
         if config.get("export_training_paths"):
             export_path_to_simulation_format(training_paths, "training-paths.txt")
 
@@ -162,6 +170,7 @@ class Env:
 
         return path, simulation_format, reward
 
+    # test agent performance (accuracy)
     def test(self, test_episodes):
         if not self.trained:
             self.q_values = np.load('q_values.npy')
@@ -180,7 +189,8 @@ class Env:
                                                                      target_index_x, target_index_y,
                                                                      box_index_x, box_index_y)
 
-            test_paths.append(simulation_format)
+            if (test_episode+1) % config.get("iteration_export_cycle") == 0:
+                test_paths.append(simulation_format)
 
             if reward > 0:
                 passed += 1
@@ -193,6 +203,7 @@ class Env:
                 print(path)
                 print(reward)
 
+        # every xth episode is exported
         if config.get('export_test_paths'):
             export_path_to_simulation_format(test_paths, 'test-paths.txt')
 
@@ -206,6 +217,7 @@ class Env:
 
         self.agent_position = [x, y]
 
+    # terminal states are walls and target location if carry_state equals to 1 (i.e. if agent carries a box)
     def is_terminal_state(self, row_index, column_index, target_index_x, target_index_y, carry_state):
         if self.tileMap[row_index, column_index] == 0 \
                 or (row_index == target_index_x and column_index == target_index_y and carry_state == 1):
@@ -222,6 +234,7 @@ class Env:
         else:
             return np.random.randint(4)
 
+    # initial agent starting location,excludes walls
     def get_starting_location(self):
         row_index = np.random.randint(self.env_rows)
         column_index = np.random.randint(self.env_columns)
@@ -232,15 +245,17 @@ class Env:
 
         return row_index, column_index
 
+    # initial target starting location,excludes walls
     def get_target_location(self):
-        target_index_x = np.random.randint(self.env_rows)
-        target_index_y = np.random.randint(self.env_columns)
-
-        while self.tileMap[target_index_x, target_index_y] == 0:
-            target_index_x = np.random.randint(self.env_rows)
-            target_index_y = np.random.randint(self.env_columns)
-
-        return target_index_x, target_index_y
+        self.get_starting_location()
+        # target_index_x = np.random.randint(self.env_rows)
+        # target_index_y = np.random.randint(self.env_columns)
+        #
+        # while self.tileMap[target_index_x, target_index_y] == 0:
+        #     target_index_x = np.random.randint(self.env_rows)
+        #     target_index_y = np.random.randint(self.env_columns)
+        #
+        # return target_index_x, target_index_y
 
     def get_box_location(self, target_index_x, target_index_y):
         box_index_x = np.random.randint(self.env_rows)

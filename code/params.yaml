@@ -12,3 +12,4 @@ target_reward:  1000
 pickup_reward:  200
 #stop_exploring_after: 150000 #optional
 move_limit: 200 #optional
+iteration_export_cycle: 1000
