@@ -48,6 +48,10 @@ class Env:
         training_paths = []
 
         rewards = []
+        rewards.append(0)
+
+        plot_episodes = []
+        plot_episodes.append(0)
 
         for episode in range(num_episodes):
             if config.get("stop_exploring_after") and episode == config.get("stop_exploring_after"):
@@ -108,7 +112,10 @@ class Env:
                              box_index_x, box_index_y, old_carry_index, action_index] = new_q_value
 
             print(total_reward)
-            rewards.append(total_reward)
+            if episode % config.get("iteration_plot_cycle") == 0:
+                rewards.append(total_reward)
+                plot_episodes.append(episode)
+
             env.reset_env()
             # eps = min_eps + (max_eps - min_eps) * np.exp(-eps_decay*episode)
             epsilon *= epsilon_decay
@@ -123,7 +130,7 @@ class Env:
         if config.get("export_training_paths"):
             export_path_to_simulation_format(training_paths, "training-paths.txt")
 
-        plt.plot(range(0, num_episodes), rewards)
+        plt.plot(plot_episodes, rewards)
         plt.show()
 
     def reset_env(self):
@@ -189,7 +196,7 @@ class Env:
                                                                      target_index_x, target_index_y,
                                                                      box_index_x, box_index_y)
 
-            if (test_episode+1) % config.get("iteration_export_cycle") == 0:
+            if (test_episode+1) % config.get("test_export_cycle") == 0:
                 test_paths.append(simulation_format)
 
             if reward > 0:
@@ -247,8 +254,8 @@ class Env:
 
     # initial target starting location,excludes walls
     def get_target_location(self):
-        self.get_starting_location()
-        # target_index_x = np.random.randint(self.env_rows)
+        return self.get_starting_location()
+         #target_index_x = np.random.randint(self.env_rows)
         # target_index_y = np.random.randint(self.env_columns)
         #
         # while self.tileMap[target_index_x, target_index_y] == 0:
@@ -256,6 +263,7 @@ class Env:
         #     target_index_y = np.random.randint(self.env_columns)
         #
         # return target_index_x, target_index_y
+
 
     def get_box_location(self, target_index_x, target_index_y):
         box_index_x = np.random.randint(self.env_rows)
