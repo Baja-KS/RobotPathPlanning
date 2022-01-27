@@ -1,17 +1,19 @@
-export_training_paths:  True
-export_test_paths: True
+export_training_paths:  False
+export_test_paths: False
 epsilon:  1
-epsilon_decay: 0.99997
+min_epsilon: 0.1
+epsilon_decay: 0.999995
 discount_factor:  0.9
-learning_rate:  0.2
-episodes: 320000
-test_episodes: 10000
-wall_reward:  -1000
+learning_rate:  1
+min_learning_rate: 0.1
+learning_rate_decay: 0.999995
+episodes: 1000000
+test_episodes: 70000
+wall_reward:  -300
 path_reward:  -1
-target_reward:  1000
-pickup_reward:  200
-#stop_exploring_after: 150000 #optional
-move_limit: 200 #optional
+target_reward:  200
+stop_exploring_after: 500000 #optional
+move_limit: 40 #optional
 iteration_export_cycle: 1000
 test_export_cycle: 100
 iteration_plot_cycle: 2000

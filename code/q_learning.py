@@ -9,7 +9,7 @@ with open("params.yaml", "r") as f:
 
 
 def read_map_file(path):
-    map_file = open('./Map')
+    map_file = open(path)
 
     rows = map_file.readlines()
 
@@ -25,11 +25,13 @@ def read_map_file(path):
 
 
 tileMap = read_map_file('./Map')
+testMap = read_map_file('./testMap')
 
 
 class Env:
-    def __init__(self, tile_map):
+    def __init__(self, tile_map, testMap):
         self.tileMap = tile_map
+        self.testMap = testMap
         self.printMap = np.array(tile_map)
         self.tileMapCopy = np.array(tile_map)
         self.env_rows = len(self.tileMap)
@@ -40,11 +42,23 @@ class Env:
 
         self.trained = False
 
-        self.q_values = np.zeros(
-            (self.env_rows, self.env_columns, self.env_rows, self.env_columns,
-             self.env_rows, self.env_columns, 2, len(self.actions)))
+        dims = []
+        for i in range(8):
+            dims.append(2)
+        dims.append(self.env_rows)
+        dims.append(self.env_columns)
+        dims.append(self.env_rows)
+        dims.append(self.env_columns)
+        dims.append(len(self.actions))
 
-    def train(self, epsilon, epsilon_decay, discount_factor, learning_rate, num_episodes):
+        self.q_values = np.zeros(dims)
+        self.q_values[:, 0, :, :, :, :, :, :, :, :, :, :, 0] = -10000
+        self.q_values[:, :, :, :, 0, :, :, :, :, :, :, :, 1] = -10000
+        self.q_values[:, :, :, :, :, :, 0, :, :, :, :, :, 2] = -10000
+        self.q_values[:, :, :, 0, :, :, :, :, :, :, :, :, 3] = -10000
+
+    def train(self, epsilon, min_epsilon, epsilon_decay, discount_factor,
+              learning_rate, min_learning_rate, learning_rate_decay, num_episodes):
         training_paths = []
 
         rewards = []
@@ -53,17 +67,31 @@ class Env:
         plot_episodes = []
         plot_episodes.append(0)
 
+        map_change = []
+
+        for k in range(num_episodes // 1000):
+            map_copy = np.array(self.tileMap)
+            for i in range(1, self.env_rows - 1):
+                for j in range(1, self.env_columns - 1):
+                    if np.random.random() < 0.3:
+                        map_copy[i][j] = 0
+            map_change.append(map_copy)
+
+        map_index = 0
+
         for episode in range(num_episodes):
-            if config.get("stop_exploring_after") and episode == config.get("stop_exploring_after"):
-                epsilon = 0
+            if config.get("stop_exploring_after") and episode >= config.get("stop_exploring_after"):
+                learning_rate = 0.9
+                epsilon = -1
+
+            if episode % 1000 == 0:
+                self.tileMap = np.array(map_change[map_index])
+                map_index += 1
 
             print(episode, ' : ', epsilon)
-
             # start training -> starting location of the agent,target location and box location
-            row_index, column_index = env.get_starting_location()
-            target_index_x, target_index_y = env.get_target_location()
-            box_index_x, box_index_y = env.get_box_location(target_index_x, target_index_y)
-            carry_index = 0
+            row_index, column_index = self.get_starting_location()
+            target_index_x, target_index_y = self.get_target_location(row_index, column_index)
 
             start_row, start_column = row_index, column_index
 
@@ -71,54 +99,61 @@ class Env:
             training_path = []
             training_path.append([start_row, start_column])
             training_path.append([target_index_x, target_index_y])
-            training_path.append([box_index_x, box_index_y])
 
             move_counter = 0
             total_reward = 0
 
             # iteration -> agent tries to find a path to the box,and then to the target location
-            while not env.is_terminal_state(row_index, column_index, target_index_x, target_index_y, carry_index):
+            while not self.is_terminal_state(row_index, column_index, target_index_x, target_index_y):
                 # train time move limit
                 if config.get('move_limit') and move_counter > config.get("move_limit"):
                     break
                 move_counter += 1
 
-                action_index = env.get_next_action(row_index, column_index, target_index_x, target_index_y,
-                                                   box_index_x, box_index_y, carry_index, epsilon)
+                view = self.get_view(row_index, column_index)
+
+                action_index = self.get_next_action(view, row_index, column_index, target_index_x, target_index_y,
+                                                    epsilon)
 
                 training_path.append(self.actions[action_index][0])
 
-                old_row_index, old_column_index, old_carry_index = row_index, column_index, carry_index
+                old_row_index, old_column_index = row_index, column_index
+                old_view = list(view)
 
-                row_index, column_index, carry_index, rew = env.next_state(row_index, column_index,
-                                                                           target_index_x, target_index_y,
-                                                                           box_index_x, box_index_y,
-                                                                           carry_index, action_index)
+                view, row_index, column_index, rew = self.next_state(view, row_index, column_index,
+                                                                     target_index_x, target_index_y,
+                                                                     action_index)
 
                 total_reward += rew
 
                 # Bellman's equation -> temporal difference & q value update
-                old_q_value = env.q_values[old_row_index, old_column_index, target_index_x, target_index_y,
-                                           box_index_x, box_index_y,
-                                           old_carry_index, action_index]
+                old_q_value = self.q_values[
+                    tuple(old_view + [old_row_index, old_column_index, target_index_x, target_index_y, action_index])]
 
                 temporal_difference = rew + discount_factor * np.max(
-                    env.q_values[row_index, column_index, target_index_x, target_index_y,
-                                 box_index_x, box_index_y, carry_index]) - old_q_value
+                    self.q_values[
+                        tuple(view + [row_index, column_index, target_index_x, target_index_y])]) - old_q_value
 
                 new_q_value = old_q_value + learning_rate * temporal_difference
 
-                env.q_values[old_row_index, old_column_index, target_index_x, target_index_y,
-                             box_index_x, box_index_y, old_carry_index, action_index] = new_q_value
+                env.q_values[tuple(
+                    old_view + [old_row_index, old_column_index, target_index_x,
+                                target_index_y, action_index])] = new_q_value
 
             print(total_reward)
             if episode % config.get("iteration_plot_cycle") == 0:
                 rewards.append(total_reward)
                 plot_episodes.append(episode)
 
-            env.reset_env()
             # eps = min_eps + (max_eps - min_eps) * np.exp(-eps_decay*episode)
             epsilon *= epsilon_decay
+            if epsilon < min_epsilon:
+                epsilon = min_epsilon
+
+            learning_rate *= learning_rate_decay
+            if learning_rate < min_learning_rate:
+                learning_rate = min_learning_rate
+
             # every xth episode is exported
             if (episode + 1) % config.get("iteration_export_cycle") == 0:
                 training_paths.append(training_path)
@@ -137,66 +172,99 @@ class Env:
         self.tileMap = np.array(self.tileMapCopy)
         self.printMap = np.array(self.tileMapCopy)
 
-    def get_shortest_path(self, start_x, start_y, target_x, target_y, box_x, box_y):
+    def get_view(self, row_index, column_index):
+        view = np.zeros(8, dtype='int').tolist()
+
+        for i in range(3):
+            view[i] = self.tileMap[row_index - 1][column_index + i - 1]
+
+        view[3] = self.tileMap[row_index][column_index - 1]
+        view[4] = self.tileMap[row_index][column_index + 1]
+
+        for i in range(3):
+            view[i + 5] = self.tileMap[row_index + 1][column_index + i - 1]
+
+        return view
+
+    def get_shortest_path(self, start_x, start_y, target_x, target_y, adaptation_enabled=False):
         path = []
         simulation_format = []
         if self.tileMap[start_x, start_y] == 0:
             return []
 
-        row_index, column_index, target_index_x, target_index_y, \
-        box_index_x, box_index_y, \
-        carry_index = start_x, start_y, target_x, target_y, box_x, box_y, 0
+        row_index, column_index, \
+        target_index_x, target_index_y = start_x, start_y, target_x, target_y
+
+        view = self.get_view(row_index, column_index)
 
         path.append([start_x, start_y])
         simulation_format.append([start_x, start_y])
         simulation_format.append([target_index_x, target_index_y])
-        simulation_format.append([box_index_x, box_index_y])
 
         move_counter = 0
         reward = 0
 
         while not self.is_terminal_state(row_index, column_index,
-                                         target_index_x, target_index_y, carry_index):
+                                         target_index_x, target_index_y):
             if move_counter == config.get('move_limit'):
                 break
 
             move_counter += 1
 
-            action_index = self.get_next_action(row_index, column_index,
-                                                target_index_x, target_index_y,
-                                                box_index_x, box_index_y, carry_index, -1)
+            action_index = self.get_next_action(view, row_index, column_index,
+                                                target_index_x, target_index_y, -1)
 
-            row_index, column_index, carry_index, reward = self.next_state(row_index, column_index,
-                                                                           target_index_x, target_index_y,
-                                                                           box_index_x, box_index_y,
-                                                                           carry_index, action_index)
+            old_view = list(view)
+            old_row_index, old_column_index, old_target_index_x, \
+            old_target_index_y = row_index, column_index, target_index_x, target_index_y
+
+            view, row_index, column_index, rew = self.next_state(view, row_index, column_index,
+                                                                 target_index_x, target_index_y,
+                                                                 action_index)
+
+            old_q_value = self.q_values[
+                tuple(old_view + [old_row_index, old_column_index, target_index_x, target_index_y, action_index])]
+
+            temporal_difference = rew + 0.9 * np.max(
+                self.q_values[
+                    tuple(view + [row_index, column_index, target_index_x, target_index_y])]) - old_q_value
+
+            new_q_value = old_q_value + 0.9 * temporal_difference
+
+            if adaptation_enabled:
+                env.q_values[tuple(
+                    old_view + [old_row_index, old_column_index, target_index_x,
+                                target_index_y, action_index])] = new_q_value
 
             path.append([row_index, column_index])
             simulation_format.append(self.actions[action_index][0])
-            reward += reward
+            reward += rew
+            print(move_counter, ':', reward)
 
         return path, simulation_format, reward
 
     # test agent performance (accuracy)
-    def test(self, test_episodes):
+    def test(self, test_episodes, adaptation_enabled):
         if not self.trained:
             self.q_values = np.load('q_values.npy')
 
         test_paths = []
+
+        self.tileMap = np.array(self.testMap)
+        self.env_rows = len(self.tileMap)
+        self.env_columns = len(self.tileMap[0])
 
         passed = 0
 
         for test_episode in range(test_episodes):
 
             row_index, column_index = self.get_starting_location()
-            target_index_x, target_index_y = self.get_target_location()
-            box_index_x, box_index_y = self.get_box_location(target_index_x, target_index_y)
+            target_index_x, target_index_y = self.get_target_location(row_index, column_index)
 
             path, simulation_format, reward = self.get_shortest_path(row_index, column_index,
-                                                                     target_index_x, target_index_y,
-                                                                     box_index_x, box_index_y)
+                                                                     target_index_x, target_index_y, adaptation_enabled)
 
-            if (test_episode+1) % config.get("test_export_cycle") == 0:
+            if (test_episode + 1) % config.get("test_export_cycle") == 0:
                 test_paths.append(simulation_format)
 
             if reward > 0:
@@ -206,7 +274,6 @@ class Env:
                 print('Test: ' + str(test_episode))
                 print(f'Starting location: [{row_index}, {column_index}]')
                 print(f'Target location: [{target_index_x}, {target_index_y}]')
-                print(f'Box location: [{box_index_x}, {box_index_y}]')
                 print(path)
                 print(reward)
 
@@ -225,37 +292,54 @@ class Env:
         self.agent_position = [x, y]
 
     # terminal states are walls and target location if carry_state equals to 1 (i.e. if agent carries a box)
-    def is_terminal_state(self, row_index, column_index, target_index_x, target_index_y, carry_state):
+    def is_terminal_state(self, row_index, column_index, target_index_x, target_index_y):
         if self.tileMap[row_index, column_index] == 0 \
-                or (row_index == target_index_x and column_index == target_index_y and carry_state == 1):
+                or (row_index == target_index_x and column_index == target_index_y):
             return True
         else:
             return False
 
-    def get_next_action(self, row_index, column_index, target_index_x, target_index_y,
-                        box_index_x, box_index_y, carry_index, epsilon):
+    def get_next_action(self, view, row_index, column_index, target_index_x, target_index_y, epsilon):
         if np.random.random() > epsilon:
-            return np.argmax(self.q_values[row_index, column_index, target_index_x, target_index_y,
-                                           box_index_x, box_index_y, carry_index])
+            return np.argmax(self.q_values[tuple(view + [row_index, column_index, target_index_x, target_index_y])])
 
         else:
-            return np.random.randint(4)
+            possible_actions = []
+            if view[1] == 1:
+                possible_actions.append(0)
+            if view[4] == 1:
+                possible_actions.append(1)
+            if view[3] == 1:
+                possible_actions.append(2)
+            if view[6] == 1:
+                possible_actions.append(2)
+
+            if len(possible_actions) != 0:
+                random_index = np.random.randint(len(possible_actions))
+                return possible_actions[random_index]
+
+            return np.random.randint(len(self.actions))
 
     # initial agent starting location,excludes walls
     def get_starting_location(self):
-        row_index = np.random.randint(self.env_rows)
-        column_index = np.random.randint(self.env_columns)
+        row_index = np.random.randint(1, self.env_rows - 1)
+        column_index = np.random.randint(1, self.env_columns - 1)
 
         while self.tileMap[row_index, column_index] == 0:
-            row_index = np.random.randint(self.env_rows)
-            column_index = np.random.randint(self.env_columns)
+            row_index = np.random.randint(1, self.env_rows - 1)
+            column_index = np.random.randint(1, self.env_columns - 1)
 
         return row_index, column_index
 
     # initial target starting location,excludes walls
-    def get_target_location(self):
-        return self.get_starting_location()
-         #target_index_x = np.random.randint(self.env_rows)
+    def get_target_location(self, agent_x, agent_y):
+        target_index_x, target_index_y = self.get_starting_location()
+
+        while target_index_x == agent_x and target_index_y == agent_y:
+            target_index_x, target_index_y = self.get_starting_location()
+
+        return target_index_x, target_index_y
+        # target_index_x = np.random.randint(self.env_rows)
         # target_index_y = np.random.randint(self.env_columns)
         #
         # while self.tileMap[target_index_x, target_index_y] == 0:
@@ -263,7 +347,6 @@ class Env:
         #     target_index_y = np.random.randint(self.env_columns)
         #
         # return target_index_x, target_index_y
-
 
     def get_box_location(self, target_index_x, target_index_y):
         box_index_x = np.random.randint(self.env_rows)
@@ -276,41 +359,41 @@ class Env:
 
         return box_index_x, box_index_y
 
-    def next_state(self, row_index, column_index, target_index_x, target_index_y,
-                   box_index_x, box_index_y, carry_index, action_index):
+    def next_state(self, view, row_index, column_index, target_index_x,
+                   target_index_y, action_index):
         new_row_index = row_index
         new_column_index = column_index
-        new_carry_index = carry_index
+        new_view = list(view)
 
         reward = 0
+        wall = False
 
-        if self.actions[action_index] == 'up' and row_index > 0:
+        if self.actions[action_index] == 'up':
             new_row_index -= 1
 
-        elif self.actions[action_index] == 'right' and column_index < self.env_columns - 1:
+        elif self.actions[action_index] == 'right':
             new_column_index += 1
 
-        elif self.actions[action_index] == 'down' and row_index < self.env_rows - 1:
+        elif self.actions[action_index] == 'down':
             new_row_index += 1
 
-        elif self.actions[action_index] == 'left' and column_index > 0:
+        elif self.actions[action_index] == 'left':
             new_column_index -= 1
 
         if self.tileMap[new_row_index, new_column_index] == 0:
+            wall = True
             reward += config.get("wall_reward")
 
         elif target_index_x == new_row_index and target_index_y == new_column_index:
-            if carry_index == 1:
-                reward += config.get('target_reward')
-
-        elif carry_index == 0 and box_index_x == new_row_index and box_index_y == new_column_index:
-            new_carry_index = 1
-            reward += config.get('pickup_reward')
+            reward += config.get('target_reward')
 
         reward += config.get("path_reward")
 
+        if not wall:
+            new_view = self.get_view(new_row_index, new_column_index)
+
         self.agent_position = [new_row_index, new_column_index]
-        return new_row_index, new_column_index, new_carry_index, reward
+        return new_view, new_row_index, new_column_index, reward
 
     def visual_update(self):
         self.printMap = np.array(self.tileMap)
@@ -340,13 +423,17 @@ def export_path_to_simulation_format(paths, file):
 
 
 eps = config.get("epsilon")
+min_eps = config.get("min_epsilon")
 eps_decay = config.get("epsilon_decay")
 disc_factor = config.get("discount_factor")
 learn_rate = config.get("learning_rate")
+learn_rate_decay = config.get("learning_rate_decay")
+min_learn_rate = config.get("min_learning_rate")
 n_episodes = config.get("episodes")
 n_test_episodes = config.get('test_episodes')
 
-env = Env(tileMap)
-env.train(eps, eps_decay, disc_factor, learn_rate, n_episodes)
+print(tileMap)
+env = Env(tileMap, testMap)
+#env.train(eps, min_eps, eps_decay, disc_factor, learn_rate, min_learn_rate, learn_rate_decay, n_episodes)
 
-env.test(n_test_episodes)
+env.test(n_test_episodes, adaptation_enabled=False)
