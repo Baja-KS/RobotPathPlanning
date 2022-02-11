@@ -1,352 +1,353 @@
-#!/usr/bin/python
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[175]:
+
 
 import numpy as np
-import matplotlib.pyplot as plt
-from yaml import safe_load
-
-with open("params.yaml", "r") as f:
-    config: dict = safe_load(f)
 
 
-def read_map_file(path):
-    map_file = open('./Map')
-
-    rows = map_file.readlines()
-
-    map_file.close()
-
-    for i in range(len(rows)):
-        rows[i] = rows[i].strip()
-        rows[i] = rows[i].split(' ')
-
-        rows[i] = list(map(lambda x: int(x), rows[i]))
-
-    return np.array(rows)
-
-
-tileMap = read_map_file('./Map')
+# In[176]:
 
 
 class Env:
-    def __init__(self, tile_map):
-        self.tileMap = tile_map
-        self.printMap = np.array(tile_map)
-        self.tileMapCopy = np.array(tile_map)
-        self.env_rows = len(self.tileMap)
-        self.env_columns = len(self.tileMap[0])
-
-        self.agent_position = [0, 0]
-        self.actions = ['up', 'right', 'down', 'left']
-
-        self.trained = False
-
-        self.q_values = np.zeros(
-            (self.env_rows, self.env_columns, self.env_rows, self.env_columns,
-             self.env_rows, self.env_columns, 2, len(self.actions)))
-
-    def train(self, epsilon, epsilon_decay, discount_factor, learning_rate, num_episodes):
-        training_paths = []
-
-        rewards = []
-        rewards.append(0)
-
-        plot_episodes = []
-        plot_episodes.append(0)
-
-        for episode in range(num_episodes):
-            if config.get("stop_exploring_after") and episode == config.get("stop_exploring_after"):
-                epsilon = 0
-
-            print(episode, ' : ', epsilon)
-
-            # start training -> starting location of the agent,target location and box location
-            row_index, column_index = env.get_starting_location()
-            target_index_x, target_index_y = env.get_target_location()
-            box_index_x, box_index_y = env.get_box_location(target_index_x, target_index_y)
-            carry_index = 0
-
-            start_row, start_column = row_index, column_index
-
-            # add locations to path
-            training_path = []
-            training_path.append([start_row, start_column])
-            training_path.append([target_index_x, target_index_y])
-            training_path.append([box_index_x, box_index_y])
-
-            move_counter = 0
-            total_reward = 0
-
-            # iteration -> agent tries to find a path to the box,and then to the target location
-            while not env.is_terminal_state(row_index, column_index, target_index_x, target_index_y, carry_index):
-                # train time move limit
-                if config.get('move_limit') and move_counter > config.get("move_limit"):
-                    break
-                move_counter += 1
-
-                action_index = env.get_next_action(row_index, column_index, target_index_x, target_index_y,
-                                                   box_index_x, box_index_y, carry_index, epsilon)
-
-                training_path.append(self.actions[action_index][0])
-
-                old_row_index, old_column_index, old_carry_index = row_index, column_index, carry_index
-
-                row_index, column_index, carry_index, rew = env.next_state(row_index, column_index,
-                                                                           target_index_x, target_index_y,
-                                                                           box_index_x, box_index_y,
-                                                                           carry_index, action_index)
-
-                total_reward += rew
-
-                # Bellman's equation -> temporal difference & q value update
-                old_q_value = env.q_values[old_row_index, old_column_index, target_index_x, target_index_y,
-                                           box_index_x, box_index_y,
-                                           old_carry_index, action_index]
-
-                temporal_difference = rew + discount_factor * np.max(
-                    env.q_values[row_index, column_index, target_index_x, target_index_y,
-                                 box_index_x, box_index_y, carry_index]) - old_q_value
-
-                new_q_value = old_q_value + learning_rate * temporal_difference
-
-                env.q_values[old_row_index, old_column_index, target_index_x, target_index_y,
-                             box_index_x, box_index_y, old_carry_index, action_index] = new_q_value
-
-            print(total_reward)
-            if episode % config.get("iteration_plot_cycle") == 0:
-                rewards.append(total_reward)
-                plot_episodes.append(episode)
-
-            env.reset_env()
-            # eps = min_eps + (max_eps - min_eps) * np.exp(-eps_decay*episode)
-            epsilon *= epsilon_decay
-            # every xth episode is exported
-            if (episode + 1) % config.get("iteration_export_cycle") == 0:
-                training_paths.append(training_path)
-
-        self.trained = True
-        print('Training complete!')
-        np.save('q_values', env.q_values)
-        # Path export to a format compatible with our unity simulation
-        if config.get("export_training_paths"):
-            export_path_to_simulation_format(training_paths, "training-paths.txt")
-
-        plt.plot(plot_episodes, rewards)
-        plt.show()
-
+    def __init__(self, map_height, map_width, max_num_obstacles):
+        self.map_height = map_height
+        self.map_width = map_width
+        self.max_num_obstacles = max_num_obstacles
+        self.map = np.ones((map_height, map_width), dtype='int')
+        self.map[0:2, :] = 0
+        self.map[:, 0:2] = 0
+        self.map[map_height-2:, :] = 0
+        self.map[:, map_width - 2:] = 0
+        
+        self.map_copy = np.array(self.map)
+        
+        print(self.map)
+        
+        self.init_env(self.max_num_obstacles)
+        
+        self.agent_pos = [0, 0]   
+        self.target_pos = [map_height - 2, map_width - 2]
+    
     def reset_env(self):
-        self.tileMap = np.array(self.tileMapCopy)
-        self.printMap = np.array(self.tileMapCopy)
+        self.map = np.array(self.map_copy)
+        self.init_env(np.random.randint(0, self.max_num_obstacles + 1))
+        self.init_agent_pos()
+        self.init_target_pos()
+        
+    def init_env(self, num_obstacles):
+        for _ in range(num_obstacles):
+            obstacle_pos = [0, 0]
+            while self.map[obstacle_pos[0], obstacle_pos[1]] == 0:
+                obstacle_pos[0] = np.random.randint(2, self.map_height - 2)
+                obstacle_pos[1] = np.random.randint(2, self.map_width - 2)
+            self.map[obstacle_pos[0], obstacle_pos[1]] = 0
+    
+    def init_agent_pos(self):
+        self.agent_pos[0] = np.random.randint(2, self.map_height - 2)
+        self.agent_pos[1] = np.random.randint(2, self.map_width - 2)
+        
+        while(self.map[self.agent_pos[0], self.agent_pos[1]] == 0):
+            self.agent_pos[0] = np.random.randint(2, self.map_height - 2)
+            self.agent_pos[1] = np.random.randint(2, self.map_width - 2)
+    
+    def init_target_pos(self):
+        self.target_pos[0] = np.random.randint(2, self.map_height - 2)
+        self.target_pos[1] = np.random.randint(2, self.map_width - 2)
+        
+        while(self.map[self.target_pos[0], self.target_pos[1]] == 0 or               self.target_pos[0] == self.agent_pos[0] and self.target_pos[1] == self.agent_pos[1]):
+            self.target_pos[0] = np.random.randint(2, self.map_height - 2)
+            self.target_pos[1] = np.random.randint(2, self.map_width - 2)
+            
+    def get_view(self):
+        view = np.zeros(8, dtype='int').tolist()
 
-    def get_shortest_path(self, start_x, start_y, target_x, target_y, box_x, box_y):
-        path = []
-        simulation_format = []
-        if self.tileMap[start_x, start_y] == 0:
-            return []
+        view[0:3] = self.map[self.agent_pos[0] - 1][self.agent_pos[1] - 1:self.agent_pos[1] + 2]
 
-        row_index, column_index, target_index_x, target_index_y, \
-        box_index_x, box_index_y, \
-        carry_index = start_x, start_y, target_x, target_y, box_x, box_y, 0
+        view[3] = self.map[self.agent_pos[0]][self.agent_pos[1] - 1]
+        view[4] = self.map[self.agent_pos[0]][self.agent_pos[1] + 1]
 
-        path.append([start_x, start_y])
-        simulation_format.append([start_x, start_y])
-        simulation_format.append([target_index_x, target_index_y])
-        simulation_format.append([box_index_x, box_index_y])
+        view[5:8] = self.map[self.agent_pos[0] + 1][self.agent_pos[1] - 1:self.agent_pos[1] + 2]
 
-        move_counter = 0
+        return view
+    
+    def is_terminal_state(self):
+        if self.map[self.agent_pos[0], self.agent_pos[1]] == 0:
+            return True
+        if self.target_pos[0] == self.agent_pos[0] and self.target_pos[1] == self.agent_pos[1]:
+            return True
+        
+        return False
+    
+    def step(self, action, prev_action=4):
         reward = 0
+        done = False
+        looping = False
+        
+        if action == 0:
+            self.agent_pos[0] -= 1
+            if prev_action == 4:
+                looping = True
+                
+        elif action == 1:
+            self.agent_pos[0] -= 1
+            self.agent_pos[1] += 1
+            if prev_action == 5:
+                looping = True
+                
+        elif action == 2:
+            self.agent_pos[0] += 1
+            if prev_action == 6:
+                looping = True
+                
+        elif action == 3:
+            self.agent_pos[0] += 1
+            self.agent_pos[1] += 1
+            if prev_action == 7:
+                looping = True
+                
+        elif action == 4:
+            self.agent_pos[0] += 1
+            if prev_action == 0:
+                looping = True
+                
+        elif action == 5:
+            self.agent_pos[0] += 1
+            self.agent_pos[1] -= 1
+            if prev_action == 1:
+                looping = True
+                
+        elif action == 6:
+            self.agent_pos[1] -= 1
+            if prev_action == 2:
+                looping = True
+                
+        elif action == 7:
+            self.agent_pos[0] -= 1
+            self.agent_pos[1] -= 1
+            if prev_action == 3:
+                looping = True
+        
+        reward -= 1
+        
+        if looping:
+            reward -= 2
+        
+        new_view = env.get_view()
+        
+        if self.map[self.agent_pos[0], self.agent_pos[1]] == 0:
+            reward -= 1000
+            done = True
+        
+        if self.target_pos[0] == self.agent_pos[0] and self.target_pos[1] == self.agent_pos[1]:
+            reward += 100
+            done = True
+        
+        return new_view, self.agent_pos, reward, done
 
-        while not self.is_terminal_state(row_index, column_index,
-                                         target_index_x, target_index_y, carry_index):
-            if move_counter == config.get('move_limit'):
+
+# In[177]:
+
+
+class Agent:
+    def __init__(self, map_height, map_width, eps, eps_decay, min_eps, lr, lr_decay, gamma):
+        self.map_height = map_height
+        self.map_width = map_width
+        self.eps = eps
+        self.min_eps = min_eps
+        self.eps_decay = eps_decay
+        self.lr = lr
+        self.lr_decay = lr_decay
+        self.gamma = gamma
+        
+        self.actions = ['u', 'ur', 'r', 'dr', 'd', 'dl', 'l', 'ul']
+        
+        dims = []
+        for i in range(8):
+            dims.append(2)
+        dims.append(self.map_height)
+        dims.append(self.map_width)
+        dims.append(self.map_height)
+        dims.append(self.map_width)
+        dims.append(len(self.actions) + 1)
+        dims.append(len(self.actions))
+        
+        self.q_values = np.zeros(dims)
+        
+        self.q_values[:, 0, :, :, :, :, :, :, :, :, :, :, :, 0] = -100000
+        self.q_values[:, :, 0, :, :, :, :, :, :, :, :, :, :, 1] = -100000
+        self.q_values[:, :, :, :, 0, :, :, :, :, :, :, :, :, 2] = -100000
+        self.q_values[:, :, :, :, :, :, :, 0, :, :, :, :, :, 3] = -100000
+        self.q_values[:, :, :, :, :, :, 0, :, :, :, :, :, :, 4] = -100000
+        self.q_values[:, :, :, :, :, 0, :, :, :, :, :, :, :, 5] = -100000
+        self.q_values[:, :, :, 0, :, :, :, :, :, :, :, :, :, 6] = -100000
+        self.q_values[0, :, :, :, :, :, :, :, :, :, :, :, :, 7] = -100000
+        
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 0, 4] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 1, 5] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 2, 6] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 3, 7] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 4, 0] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 5, 1] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 6, 2] = -1000
+        self.q_values[:, :, :, :, :, :, :, :, :, :, :, :, 7, 3] = -1000
+        
+    def act(self, view, row_index, column_index, target_index_x, target_index_y, prev_action):
+        if self.eps > np.random.uniform():
+            legal_actions = []
+            action = np.random.randint(len(self.actions))
+        
+            if view[1] == 1:
+                legal_actions.append(0)
+            if view[2] == 1:
+                legal_actions.append(1)
+            if view[4] == 1:
+                legal_actions.append(2)
+            if view[7] == 1:
+                legal_actions.append(3)
+            if view[6] == 1:
+                legal_actions.append(4)
+            if view[5] == 1:
+                legal_actions.append(5)
+            if view[3] == 1:
+                legal_actions.append(6)
+            if view[0] == 1:
+                legal_actions.append(7)
+        
+            n = len(legal_actions)
+            if n != 0:
+                action = legal_actions[np.random.randint(n)]
+        
+            return action
+        
+        return np.argmax(self.q_values[tuple(view + [row_index, column_index, target_index_x, target_index_y, prev_action])])
+
+
+# In[178]:
+
+
+max_num_obstacles = 10
+
+
+# In[179]:
+
+
+env = Env(13, 13, max_num_obstacles)
+
+
+# In[180]:
+
+
+agent = Agent(env.map_height, env.map_width, 1, 0.99999, 0.1, 0.1, 1, 0.99)
+
+
+# In[181]:
+
+
+num_episodes = 1000000
+max_steps = 40
+stop_exploring_after = num_episodes
+
+
+# In[182]:
+
+
+#TRAINING
+for episode in range(num_episodes):
+    env.reset_env()
+    
+    total_reward = 0
+    
+    prev_action = 4
+    
+    if stop_exploring_after == episode:
+        agent.eps = agent.min_eps
+    
+    for step in range(1, max_steps + 1):          
+        view = env.get_view()
+        agent_pos = list(env.agent_pos)
+        target_pos = list(env.target_pos)
+        
+        
+        action = agent.act(view, agent_pos[0], agent_pos[1],
+                           target_pos[0], target_pos[1], prev_action)
+        
+        old_view = list(view)
+        old_agent_pos = list(agent_pos)
+        old_target_pos = list(target_pos)
+        old_prev_action = prev_action
+        
+        view, agent_pos, reward, done = env.step(action, prev_action)
+        
+        total_reward += reward
+        
+        old_q_value = agent.q_values[
+                    tuple(old_view + [old_agent_pos[0], old_agent_pos[1],
+                                      old_target_pos[0], old_target_pos[1], old_prev_action, action])]
+
+        prev_action = action
+        
+        temporal_difference = reward + agent.gamma * np.max(
+                agent.q_values[tuple(view + [agent_pos[0], agent_pos[1],
+                                            target_pos[0], target_pos[1], prev_action])]) - old_q_value
+
+        new_q_value = old_q_value + agent.lr * temporal_difference
+
+        agent.q_values[tuple(
+                    old_view + [old_agent_pos[0], old_agent_pos[1],
+                                old_target_pos[0], old_target_pos[1], old_prev_action, action])] = new_q_value
+        
+        if done:
+            break
+            
+    print('e: ' + str(episode) + ' rew: ' + str(total_reward) + ' eps: ' + str(agent.eps))
+    if agent.eps > agent.min_eps:
+        agent.eps *= agent.eps_decay
+    agent.lr *= agent.lr_decay
+
+
+# In[1]:
+
+
+test_episodes = 10000
+agent.eps = 0.0
+
+for num_obstacles in range(max_num_obstacles + 1):
+
+    tests_passed = 0
+    
+    print('Map with ' + str(num_obstacles) + ' obstacles. eps: ' + str(agent.eps))
+    
+    for episode in range(test_episodes):
+        
+        env.map = np.array(env.map_copy)
+        env.init_env(num_obstacles)
+
+        env.init_agent_pos()
+        env.init_target_pos()
+
+        prev_action = 4
+        target_pos = env.target_pos
+
+        done = False
+
+        for step in range(1, max_steps + 1):
+            view = env.get_view()
+            agent_pos = list(env.agent_pos)
+            target_pos = list(env.target_pos)
+
+            action = agent.act(view, agent_pos[0], agent_pos[1], target_pos[0], target_pos[1], prev_action)
+
+            view, agent_pos, reward, done = env.step(action, prev_action)
+
+            prev_action = action
+
+            if done:
+                if agent_pos[0] == target_pos[0] and agent_pos[1] == target_pos[1]:
+                    tests_passed += 1
                 break
 
-            move_counter += 1
+    print('Success rate: ' + str(tests_passed * 100 / test_episodes) + '%\n')
+    agent.eps += 0.011
 
-            action_index = self.get_next_action(row_index, column_index,
-                                                target_index_x, target_index_y,
-                                                box_index_x, box_index_y, carry_index, -1)
-
-            row_index, column_index, carry_index, reward = self.next_state(row_index, column_index,
-                                                                           target_index_x, target_index_y,
-                                                                           box_index_x, box_index_y,
-                                                                           carry_index, action_index)
-
-            path.append([row_index, column_index])
-            simulation_format.append(self.actions[action_index][0])
-            reward += reward
-
-        return path, simulation_format, reward
-
-    # test agent performance (accuracy)
-    def test(self, test_episodes):
-        if not self.trained:
-            self.q_values = np.load('q_values.npy')
-
-        test_paths = []
-
-        passed = 0
-
-        for test_episode in range(test_episodes):
-
-            row_index, column_index = self.get_starting_location()
-            target_index_x, target_index_y = self.get_target_location()
-            box_index_x, box_index_y = self.get_box_location(target_index_x, target_index_y)
-
-            path, simulation_format, reward = self.get_shortest_path(row_index, column_index,
-                                                                     target_index_x, target_index_y,
-                                                                     box_index_x, box_index_y)
-
-            if (test_episode+1) % config.get("test_export_cycle") == 0:
-                test_paths.append(simulation_format)
-
-            if reward > 0:
-                passed += 1
-            else:
-                print('------------------------------------------------------------------------------')
-                print('Test: ' + str(test_episode))
-                print(f'Starting location: [{row_index}, {column_index}]')
-                print(f'Target location: [{target_index_x}, {target_index_y}]')
-                print(f'Box location: [{box_index_x}, {box_index_y}]')
-                print(path)
-                print(reward)
-
-        # every xth episode is exported
-        if config.get('export_test_paths'):
-            export_path_to_simulation_format(test_paths, 'test-paths.txt')
-
-        print(f'Accuracy: {(passed / test_episodes) * 100}%')
-
-    def set_agent_position(self, x, y):
-        if x < 0 or x >= self.env_rows:
-            return
-        if y < 0 or y >= self.env_columns:
-            return
-
-        self.agent_position = [x, y]
-
-    # terminal states are walls and target location if carry_state equals to 1 (i.e. if agent carries a box)
-    def is_terminal_state(self, row_index, column_index, target_index_x, target_index_y, carry_state):
-        if self.tileMap[row_index, column_index] == 0 \
-                or (row_index == target_index_x and column_index == target_index_y and carry_state == 1):
-            return True
-        else:
-            return False
-
-    def get_next_action(self, row_index, column_index, target_index_x, target_index_y,
-                        box_index_x, box_index_y, carry_index, epsilon):
-        if np.random.random() > epsilon:
-            return np.argmax(self.q_values[row_index, column_index, target_index_x, target_index_y,
-                                           box_index_x, box_index_y, carry_index])
-
-        else:
-            return np.random.randint(4)
-
-    # initial agent starting location,excludes walls
-    def get_starting_location(self):
-        row_index = np.random.randint(self.env_rows)
-        column_index = np.random.randint(self.env_columns)
-
-        while self.tileMap[row_index, column_index] == 0:
-            row_index = np.random.randint(self.env_rows)
-            column_index = np.random.randint(self.env_columns)
-
-        return row_index, column_index
-
-    # initial target starting location,excludes walls
-    def get_target_location(self):
-        return self.get_starting_location()
-         #target_index_x = np.random.randint(self.env_rows)
-        # target_index_y = np.random.randint(self.env_columns)
-        #
-        # while self.tileMap[target_index_x, target_index_y] == 0:
-        #     target_index_x = np.random.randint(self.env_rows)
-        #     target_index_y = np.random.randint(self.env_columns)
-        #
-        # return target_index_x, target_index_y
-
-
-    def get_box_location(self, target_index_x, target_index_y):
-        box_index_x = np.random.randint(self.env_rows)
-        box_index_y = np.random.randint(self.env_columns)
-
-        while self.tileMap[box_index_x, box_index_y] == 0 \
-                or (box_index_x == target_index_x and box_index_y == target_index_y):
-            box_index_x = np.random.randint(self.env_rows)
-            box_index_y = np.random.randint(self.env_columns)
-
-        return box_index_x, box_index_y
-
-    def next_state(self, row_index, column_index, target_index_x, target_index_y,
-                   box_index_x, box_index_y, carry_index, action_index):
-        new_row_index = row_index
-        new_column_index = column_index
-        new_carry_index = carry_index
-
-        reward = 0
-
-        if self.actions[action_index] == 'up' and row_index > 0:
-            new_row_index -= 1
-
-        elif self.actions[action_index] == 'right' and column_index < self.env_columns - 1:
-            new_column_index += 1
-
-        elif self.actions[action_index] == 'down' and row_index < self.env_rows - 1:
-            new_row_index += 1
-
-        elif self.actions[action_index] == 'left' and column_index > 0:
-            new_column_index -= 1
-
-        if self.tileMap[new_row_index, new_column_index] == 0:
-            reward += config.get("wall_reward")
-
-        elif target_index_x == new_row_index and target_index_y == new_column_index:
-            if carry_index == 1:
-                reward += config.get('target_reward')
-
-        elif carry_index == 0 and box_index_x == new_row_index and box_index_y == new_column_index:
-            new_carry_index = 1
-            reward += config.get('pickup_reward')
-
-        reward += config.get("path_reward")
-
-        self.agent_position = [new_row_index, new_column_index]
-        return new_row_index, new_column_index, new_carry_index, reward
-
-    def visual_update(self):
-        self.printMap = np.array(self.tileMap)
-        self.printMap[self.agent_position[0], self.agent_position[1]] = 8
-
-    def print_env(self):
-        print(self.printMap)
-
-
-def export_path_to_simulation_format(paths, file):
-    try:
-        with open(file, "w") as F:
-            lines = []
-            for path in paths:
-                for i in range(0, 3):
-                    lines += str(path[i][0]) + ' ' + str(path[i][1]) + '\n'
-
-                for action_i in range(3, len(path)):
-                    lines += path[action_i] + '\n'
-
-                lines += 'x' + '\n'
-
-            lines.pop(-1)
-            F.writelines(lines)
-    except IOError:
-        print("error writing to file")
-
-
-eps = config.get("epsilon")
-eps_decay = config.get("epsilon_decay")
-disc_factor = config.get("discount_factor")
-learn_rate = config.get("learning_rate")
-n_episodes = config.get("episodes")
-n_test_episodes = config.get('test_episodes')
-
-env = Env(tileMap)
-env.train(eps, eps_decay, disc_factor, learn_rate, n_episodes)
-
-env.test(n_test_episodes)
